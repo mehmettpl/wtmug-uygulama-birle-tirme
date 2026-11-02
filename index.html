@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>P2P Birleşik Uygulama (Sohbet + Paylaşım)</title>
+  <meta name="theme-color" content="#0f172a" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="icons/icon-192.png" />
+  
+  <!-- Kütüphaneler (Ortak) -->
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+  <script src="https://unpkg.com/jsqr@1.4.0/dist/jsQR.js"></script>
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+
+  <style>
+    /* === GENEL SIFIRLAMA VE ORTAK STİLLER === */
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    html, body { height: 100%; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #e2e8f0; overflow: hidden; }
+    
+    /* === SEKME MENÜSÜ === */
+    #mainNav { display: flex; background: #1e293b; border-bottom: 1px solid #334155; z-index: 9999; }
+    #mainNav button { flex: 1; padding: 12px; background: none; border: none; color: #94a3b8; font-size: 14px; font-weight: bold; cursor: pointer; border-bottom: 2px solid transparent; }
+    #mainNav button.active { color: #38bdf8; border-bottom-color: #38bdf8; background: #0f172a; }
+    
+    /* === UYGULAMA KAPSAYICILARI === */
+    .app-container { display: none; height: calc(100vh - 45px); flex-direction: column; overflow: hidden; position: relative; }
+    .app-container.active { display: flex; }
+
+    /* =====================================================================
+       UYGULAMA 1: ALS09 (SOHBET & HIZLI TRANSFER)
+       ===================================================================== */
+    #app-als09 .status, #app-als09m .status { font-size: 13px; padding: 4px 10px; border-radius: 12px; background: #475569; }
+    #app-als09 .status.connected, #app-als09m .status.connected { background: #16a34a; }
+    #app-als09 .status.waiting, #app-als09m .status.waiting { background: #ca8a04; }
+    #app-als09 .status.error, #app-als09m .status.error { background: #dc2626; }
+    #app-als09 header, #app-als09m header { padding: 12px 20px; background: #1e293b; border-bottom: 1px solid #334155; display: flex; justify-content: space-between; align-items: center; }
+    
+    /* Als09 Host */
+    #qrScreen { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 20px; padding: 20px; }
+    #qrcode { background: #fff; padding: 16px; border-radius: 12px; }
+    #chatScreen { flex: 1; display: none; flex-direction: column; overflow: hidden; }
+    #messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+    .msg { max-width: 70%; padding: 10px 14px; border-radius: 12px; word-wrap: break-word; font-size: 14px; }
+    .msg.mine { align-self: flex-end; background: #2563eb; color: white; }
+    .msg.theirs { align-self: flex-start; background: #334155; }
+    #inputArea { padding: 12px; background: #1e293b; border-top: 1px solid #334155; display: flex; gap: 8px; align-items: center; }
+    #inputArea input { flex: 1; padding: 10px; border-radius: 20px; border: 1px solid #475569; background: #0f172a; color: #fff; }
+    #inputArea button, #inputArea label { background: #2563eb; color: white; border: none; padding: 10px 16px; border-radius: 20px; cursor: pointer; }
+    #inputArea label { background: #475569; }
+    #debugLog { position: fixed; bottom: 0; left: 0; right: 0; max-height: 150px; overflow-y: auto; background: #000e; color: #0f0; font-family: monospace; font-size: 11px; padding: 8px; display: none; z-index: 9999; }
+    #debugLog.show { display: block; }
+
+    /* Als09 Mobile */
+    #m-scanScreen { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 16px; text-align: center; }
+    #m-videoWrap { width: 100%; max-width: 300px; aspect-ratio: 1; background: #000; border-radius: 16px; overflow: hidden; }
+    #m-video { width: 100%; height: 100%; object-fit: cover; }
+    #m-chatScreen { flex: 1; display: none; flex-direction: column; overflow: hidden; }
+    #m-messages { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+    #m-inputArea { padding: 10px; background: #1e293b; border-top: 1px solid #334155; display: flex; gap: 6px; align-items: center; }
+    #m-inputArea input { flex: 1; padding: 10px; border-radius: 20px; border: 1px solid #475569; background: #0f172a; color: #fff; }
+    #m-inputArea button, #m-inputArea label { background: #2563eb; color: white; border: none; padding: 10px 14px; border-radius: 20px; cursor: pointer; }
+    #m-inputArea label { background: #475569; }
+
+    /* =====================================================================
+       UYGULAMA 2: ALS08 (HOCA - ÖĞRENCİ MODU)
+       ===================================================================== */
+    :root {
+      --bg:#0f172a; --card:#1e293b; --card2:#273449; --accent:#38bdf8;
+      --accent2:#0ea5e9; --ok:#22c55e; --warn:#f59e0b; --err:#ef4444;
+      --txt:#e2e8f0; --muted:#94a3b8;
+    }
+    #app-als08 { display: none; flex-direction: column; align-items: center; padding: 16px; overflow-y: auto; height: calc(100vh - 45px); }
+    #app-als08.active { display: flex; }
+    #app-als08 .wrap { width: 100%; max-width: 720px; }
+    #app-als08 h1 { font-size: 1.3rem; margin: 8px 0 16px; text-align: center; letter-spacing: .5px; }
+    #app-als08 .card { background: var(--card); border-radius: 16px; padding: 18px; margin-bottom: 14px; box-shadow: 0 8px 24px rgba(0,0,0,.35); border: 1px solid #334155; }
+    #app-als08 .roles { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    @media(max-width:420px) { #app-als08 .roles { grid-template-columns: 1fr; } }
+    #app-als08 .role-btn { background: var(--card2); border: 1px solid #334155; border-radius: 14px; padding: 22px 14px; color: var(--txt); cursor: pointer; text-align: center; transition: .2s; font-size: 1rem; }
+    #app-als08 .role-btn:hover { border-color: var(--accent); transform: translateY(-2px); }
+    #app-als08 .role-btn .big { font-size: 2.2rem; display: block; margin-bottom: 6px; }
+    #app-als08 .role-btn small { color: var(--muted); }
+    #app-als08 button.primary { background: linear-gradient(135deg, var(--accent2), var(--accent)); border: none; color: #04222f; font-weight: 700; padding: 12px 18px; border-radius: 10px; cursor: pointer; font-size: 1rem; width: 100%; }
+    #app-als08 button.primary:disabled { opacity: .45; cursor: not-allowed; }
+    #app-als08 button.ghost { background: transparent; border: 1px solid #475569; color: var(--txt); padding: 10px 14px; border-radius: 10px; cursor: pointer; font-size: .95rem; }
+    #app-als08 input[type=text], #app-als08 input[type=file] { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid #475569; background: #0b1220; color: var(--txt); font-size: 1rem; margin-bottom: 10px; }
+    #app-als08 input[type=file]::file-selector-button { background: var(--accent2); border: none; color: #04222f; font-weight: 700; padding: 8px 12px; border-radius: 8px; margin-right: 10px; cursor: pointer; }
+    #app-als08 .qr-box { background: #fff; padding: 10px; border-radius: 12px; display: flex; justify-content: center; align-items: center; margin: 10px auto; width: 240px; height: 240px; }
+    #app-als08 .qr-box img, #app-als08 .qr-box canvas { display: block; width: 220px !important; height: 220px !important; }
+    #app-als08 .idbox { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 1.3rem; font-weight: 700; background: #0b1220; border: 1px dashed var(--accent); color: var(--accent); padding: 10px 14px; border-radius: 10px; text-align: center; word-break: break-all; margin: 10px 0; cursor: pointer; }
+    #app-als08 .log { background: #0b1220; border-radius: 10px; padding: 10px; height: 220px; overflow-y: auto; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .82rem; line-height: 1.45; border: 1px solid #334155; }
+    #app-als08 .log div { margin-bottom: 4px; }
+    #app-als08 .log .ok { color: var(--ok); } #app-als08 .log .warn { color: var(--warn); } #app-als08 .log .err { color: var(--err); } #app-als08 .log .info { color: var(--accent); }
+    #app-als08 .row { display: flex; gap: 10px; align-items: center; }
+    #app-als08 .row > * { flex: 1; }
+    #app-als08 .stat { display: flex; justify-content: space-between; font-size: .9rem; margin: 6px 0; color: var(--muted); }
+    #app-als08 .stat b { color: var(--txt); }
+    #app-als08 .bar { height: 12px; background: #0b1220; border-radius: 8px; overflow: hidden; border: 1px solid #334155; }
+    #app-als08 .bar > i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent2), var(--accent)); transition: width .2s; }
+    #app-als08 .hidden { display: none !important; }
+    #app-als08 .center { text-align: center; }
+    #app-als08 .pill { display: inline-block; background: #0b1220; border: 1px solid #334155; border-radius: 999px; padding: 4px 12px; font-size: .8rem; color: var(--muted); }
+    #app-als08 .video-wrap { position: relative; width: 100%; max-width: 360px; margin: 0 auto; border-radius: 12px; overflow: hidden; background: #000; aspect-ratio: 1/1; }
+    #app-als08 video { width: 100%; height: 100%; object-fit: cover; }
+    #app-als08 .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(20px); background: #0b1220; border: 1px solid var(--accent); color: var(--txt); padding: 12px 18px; border-radius: 12px; opacity: 0; transition: .3s; z-index: 99; max-width: 90vw; font-size: .9rem; }
+    #app-als08 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  </style>
+</head>
+<body>
+
+  <!-- ÜST SEKME MENÜSÜ -->
+  <nav id="mainNav">
+    <button id="nav-als09" class="active" onclick="switchTab('app-als09')">📡 Sohbet (Als09)</button>
+    <button id="nav-als09m" onclick="switchTab('app-als09m')">📱 Mobil (Als09)</button>
+    <button id="nav-als08" onclick="switchTab('app-als08')">🎓 Hoca/Öğrenci (Als08)</button>
+  </nav>
+
+  <!-- =====================================================================
+       UYGULAMA 1: ALS09 (HOST)
+       ===================================================================== -->
+  <div id="app-als09" class="app-container active">
+    <header>
+      <h1>🔗 P2P Transfer — Web</h1>
+      <span id="status" class="status waiting">Bekleniyor...</span>
+    </header>
+    <div id="qrScreen">
+      <h2>📱 Telefonunuzla QR kodu okutun</h2>
+      <div id="qrcode"></div>
+      <p style="font-size:12px;color:#64748b">Uçtan uca şifreli, sunucusuz bağlantı</p>
+      <button onclick="document.getElementById('debugLog').classList.toggle('show')" style="background:#475569;color:white;border:none;padding:8px 16px;border-radius:20px;cursor:pointer;">🐛 Log</button>
+    </div>
+    <div id="chatScreen">
+      <div id="messages"></div>
+      <div id="inputArea">
+        <input type="text" id="msgInput" placeholder="Mesaj yazın..." />
+        <button id="sendBtn">Gönder</button>
+        <label for="fileInput">📎 Dosya</label>
+        <input type="file" id="fileInput" style="display:none" />
+      </div>
+    </div>
+    <div id="debugLog"></div>
+  </div>
+
+  <!-- =====================================================================
+       UYGULAMA 1: ALS09 (MOBILE)
+       ===================================================================== -->
+  <div id="app-als09m" class="app-container">
+    <header>
+      <h1>🔗 P2P Transfer — Mobil</h1>
+      <span id="m-status" class="status waiting">QR bekleniyor</span>
+    </header>
+    <div id="m-scanScreen">
+      <h2>📷 Bilgisayardaki QR kodu okutun</h2>
+      <div id="m-videoWrap"><video id="m-video" autoplay playsinline muted></video></div>
+      <button onclick="document.getElementById('m-debugLog').classList.toggle('show')" style="background:#475569;color:white;border:none;padding:8px 16px;border-radius:20px;">🐛 Log</button>
+    </div>
+    <div id="m-chatScreen">
+      <div id="m-messages"></div>
+      <div id="m-inputArea">
+        <input type="text" id="m-msgInput" placeholder="Mesaj..." />
+        <button id="m-sendBtn">→</button>
+        <label for="m-fileInput">📎</label>
+        <input type="file" id="m-fileInput" style="display:none" />
+      </div>
+    </div>
+    <div id="m-debugLog" style="position: fixed; bottom: 0; left: 0; right: 0; max-height: 120px; overflow-y: auto; background: #000e; color: #0f0; font-family: monospace; font-size: 10px; padding: 6px; display: none; z-index: 9999;"></div>
+  </div>
+
+  <!-- =====================================================================
+       UYGULAMA 2: ALS08 (HOCA - ÖĞRENCİ)
+       ===================================================================== -->
+  <div id="app-als08" class="app-container">
+    <div class="wrap">
+      <h1>📡 P2P Dosya Paylaşım</h1>
+      
+      <section id="viewHome" class="card">
+        <p class="center" style="color:var(--muted);margin-top:0">Bir rol seçin</p>
+        <div class="roles">
+          <button class="role-btn" id="pickTeacher">
+            <span class="big">👨‍🏫</span>
+            <div><b>Hoca</b></div>
+            <small>Dosya gönder (masaüstü)</small>
+          </button>
+          <button class="role-btn" id="pickStudent">
+            <span class="big">🎓</span>
+            <div><b>Öğrenci</b></div>
+            <small>Dosya al (PC / telefon)</small>
+          </button>
+        </div>
+        <p class="center" style="margin-bottom:0;margin-top:16px">
+          <span class="pill" id="devicePill">Cihaz algılanıyor…</span>
+        </p>
+      </section>
+
+      <section id="viewTeacher" class="card hidden">
+        <div class="row" style="margin-bottom:10px">
+          <h2 style="margin:0;font-size:1.1rem">👨‍🏫 Hoca Modu</h2>
+          <button class="ghost" id="teacherBack" style="flex:0 0 auto">← Geri</button>
+        </div>
+        <div id="teacherStep1">
+          <p style="color:var(--muted)">Önce göndereceğiniz dosyayı seçin.</p>
+          <input type="file" id="teacherFile" />
+          <button class="primary" id="teacherStart" disabled>Bağlantıyı Başlat</button>
+        </div>
+        <div id="teacherStep2" class="hidden">
+          <p style="color:var(--muted);margin-top:0">Öğrenciler aşağıdaki ID veya QR ile bağlanabilir.</p>
+          <div class="center">
+            <div class="idbox" id="teacherId" title="Kopyalamak için tıklayın">—</div>
+            <div class="qr-box" id="qrBox"></div>
+          </div>
+          <div class="stat"><span>Dosya</span><b id="teacherFileName">—</b></div>
+          <div class="stat"><span>Boyut</span><b id="teacherFileSize">—</b></div>
+          <div class="stat"><span>Bağlı öğrenci</span><b id="teacherPeers">0</b></div>
+          <div class="stat"><span>Durum</span><b id="teacherStatus">Bekleniyor…</b></div>
+          <h3 style="font-size:.95rem;margin:14px 0 6px;color:var(--muted)">📋 Gönderim Günlüğü</h3>
+          <div class="log" id="teacherLog"></div>
+        </div>
+      </section>
+
+      <section id="viewStudent" class="card hidden">
+        <div class="row" style="margin-bottom:10px">
+          <h2 style="margin:0;font-size:1.1rem">🎓 Öğrenci Modu</h2>
+          <button class="ghost" id="studentBack" style="flex:0 0 auto">← Geri</button>
+        </div>
+        <div id="studentStep1">
+          <p style="color:var(--muted);margin-top:0">Hocanın ID'sini girin:</p>
+          <input type="text" id="teacherIdInput" placeholder="örn: a1b2c3d4-..." autocomplete="off" />
+          <button class="primary" id="studentConnect" style="margin-bottom:10px">Bağlan</button>
+          <button class="ghost hidden" id="qrScanBtn" style="width:100%">📷 Kamera ile QR Okut</button>
+          <p class="center" style="color:var(--muted);font-size:.8rem;margin-bottom:0" id="deviceInfo"></p>
+        </div>
+        <div id="qrScanWrap" class="hidden" style="margin-top:12px">
+          <div class="video-wrap"><video id="qrVideo" playsinline muted></video></div>
+          <p class="center" style="color:var(--muted);font-size:.8rem">QR kodu kameraya tutun</p>
+          <button class="ghost" id="qrScanCancel" style="width:100%">İptal</button>
+        </div>
+        <div id="studentStep2" class="hidden">
+          <div class="stat"><span>Bağlantı</span><b id="sStatus">Bağlanıyor…</b></div>
+          <div class="stat"><span>Dosya</span><b id="sFileName">—</b></div>
+          <div class="stat"><span>Boyut</span><b id="sFileSize">—</b></div>
+          <div class="stat"><span>İlerleme</span><b id="sPercent">0%</b></div>
+          <div class="bar"><i id="sBar"></i></div>
+          <div class="center" style="margin-top:14px">
+            <button class="primary hidden" id="sDownload">⬇️ Dosyayı İndir</button>
+          </div>
+        </div>
+      </section>
+    </div>
+    <div class="toast" id="toast"></div>
+  </div>
+
+  <script>
+    // === SEKME YÖNETİMİ ===
+    function switchTab(tabId) {
+      document.querySelectorAll('.app-container').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('#mainNav button').forEach(el => el.classList.remove('active'));
+      
+      document.getElementById(tabId).classList.add('active');
+      document.getElementById('nav-' + tabId.replace('app-', '')).classList.add('active');
+    }
+
+    // URL'de ?room= varsa mobil sekmeyi aç
+    if (new URLSearchParams(location.search).get('room')) {
+      switchTab('app-als09m');
+    }
+  </script>
+
+  <!-- =====================================================================
+       ALS09 JAVASCRIPT KODU (Sohbet & Transfer)
+       ===================================================================== -->
+  <script>
+    (function() {
+      // === ALS09 HOST KODU ===
+      const ICE_SERVERS = [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' },
+        { urls: 'stun:stun3.l.google.com:19302' },
+        { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+        { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+        { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
+      ];
+
+      const CHUNK_SIZE = 16 * 1024;
+      let pc = null, dataChannel = null, incomingFile = null;
+      let roomId = Math.random().toString(36).substring(2, 10);
+
+      const debugLog = document.getElementById('debugLog');
+      const log = (msg) => {
+        debugLog.innerHTML += `[${new Date().toLocaleTimeString()}] ${msg}<br>`;
+        debugLog.scrollTop = debugLog.scrollHeight;
+        console.log(msg);
+      };
+
+      const setStatus = (text, cls) => {
+        const el = document.getElementById('status');
+        if(el) { el.textContent = text; el.className = 'status ' + cls; }
+      };
+
+      async function initHost() {
+        log('Oda oluşturuluyor: ' + roomId);
+        const mobileUrl = new URL('mobile.html', location.href).href + '?room=' + roomId;
+        new QRCode(document.getElementById('qrcode'), {
+          text: mobileUrl, width: 260, height: 260,
+          colorDark: '#000', colorLight: '#fff', correctLevel: QRCode.CorrectLevel.M
+        });
+
+        pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+        dataChannel = pc.createDataChannel('fileTransfer', { ordered: true });
+        setupDataChannel(dataChannel);
+
+        pc.oniceconnectionstatechange = () => {
+          log('🧊 ICE: ' + pc.iceConnectionState);
+          if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
+            setStatus('Bağlantı koptu, yeniden deneniyor...', 'error');
+            if (pc.restartIce) { pc.restartIce(); }
+          }
+        };
+        pc.onconnectionstatechange = () => log('🔌 PC: ' + pc.connectionState);
+        pc.onicecandidate = (event) => { if (event.candidate) sendSignal('host-ice', event.candidate); };
+
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        log('Offer oluşturuldu, telefondan yanıt bekleniyor...');
+        await sendSignal('host-offer', offer);
+
+        waitForSignal('mobile-answer', async (answer) => {
+          log('Answer alındı, bağlantı kuruluyor...');
+          if (pc.signalingState !== 'closed') {
+            await pc.setRemoteDescription(new RTCSessionDescription(answer));
+            setStatus('Bağlanıyor...', 'waiting');
+          }
+        });
+
+        waitForSignal('mobile-ice', async (candidate) => {
+          if (pc && pc.signalingState !== 'closed') {
+            try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch(e){}
+          }
+        });
+      }
+
+      function setupDataChannel(channel) {
+        channel.onopen = () => {
+          log('✅ DataChannel AÇILDI!');
+          setStatus('Bağlı ✅', 'connected');
+          document.getElementById('qrScreen').style.display = 'none';
+          document.getElementById('chatScreen').style.display = 'flex';
+        };
+        channel.onmessage = (event) => handleIncoming(event, 'messages');
+        channel.onclose = () => { log('❌ Bağlantı kapandı'); setStatus('Bağlantı kapandı', 'waiting'); };
+      }
+
+      // === SİNYALLEŞME ===
+      const API_KEY = '$2b$10$q1Vb.Wq.f2V3Y8p7XzN8O.5XbVq1W9T2r4Y6u8I0O2E4A6S8D0F2';
+      const BIN_ID = '65c9f1f4dc7465401882b524';
+      
+      async function sendSignal(key, data) {
+        try {
+          await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Master-Key': API_KEY },
+            body: JSON.stringify({ [key]: data, timestamp: Date.now() })
+          });
+        } catch(e) {}
+      }
+
+      function waitForSignal(key, callback) {
+        let lastData = null;
+        const interval = setInterval(async () => {
+          try {
+            const res = await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}/latest`, { headers: { 'X-Master-Key': API_KEY } });
+            const json = await res.json();
+            const val = json.record[key];
+            if (val && JSON.stringify(val) !== JSON.stringify(lastData)) {
+              lastData = val; callback(val);
+            }
+          } catch(e) {}
+        }, 1500);
+        setTimeout(() => clearInterval(interval), 120000);
+      }
+
+      // === ORTAK FONKSİYONLAR ===
+      function handleIncoming(event, msgContainerId) {
+        const data = JSON.parse(event.data);
+        const container = document.getElementById(msgContainerId);
+        if (data.type === 'text') addTextMessage(data.text, 'theirs', container);
+        else if (data.type === 'file-meta') {
+          incomingFile = { fileId: data.fileId, name: data.name, size: data.size, mime: data.mime, chunks: [], received: 0 };
+          incomingFile.ui = addFileMessage(data.name, data.size, 'theirs', container);
+        } else if (data.type === 'file-chunk' && incomingFile && data.fileId === incomingFile.fileId) {
+          const binary = atob(data.chunk);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+          incomingFile.chunks.push(bytes.buffer);
+          incomingFile.received += bytes.length;
+          incomingFile.ui.setProgress(Math.floor((incomingFile.received / incomingFile.size) * 100));
+        } else if (data.type === 'file-end' && incomingFile) {
+          const blob = new Blob(incomingFile.chunks, { type: incomingFile.mime });
+          incomingFile.ui.finalize(URL.createObjectURL(blob), incomingFile.mime, incomingFile.name);
+          incomingFile = null;
+        }
+      }
+
+      function addTextMessage(text, who, container) {
+        const el = document.createElement('div');
+        el.className = 'msg ' + who; el.textContent = text;
+        container.appendChild(el); container.scrollTop = 99999;
+      }
+
+      function addFileMessage(name, size, who, container) {
+        const el = document.createElement('div');
+        el.className = 'msg ' + who;
+        el.innerHTML = `<div>📎 <b>${name}</b></div><div class="progress" style="height:6px;background:#1e293b;margin-top:6px"><div style="height:100%;background:#22c55e;width:0%"></div></div><div class="progress-label" style="font-size:11px">0%</div>`;
+        const bar = el.querySelector('.progress > div'), label = el.querySelector('.progress-label');
+        container.appendChild(el);
+        return {
+          setProgress: (p) => { bar.style.width = p + '%'; label.textContent = p + '%'; },
+          finalize: (url, type, fname) => {
+            label.textContent = '✅ Tamamlandı';
+            if (type && type.startsWith('image/')) el.innerHTML += `<img src="${url}" style="max-width:200px;border-radius:8px;margin-top:6px">`;
+            else el.innerHTML += `<a href="${url}" download="${fname}" style="color:#93c5fd;display:block;margin-top:6px">⬇ İndir</a>`;
+          }
+        };
+      }
+
+      function sendText(msgInputId, containerId) {
+        const text = document.getElementById(msgInputId).value.trim();
+        if (!text || !dataChannel || dataChannel.readyState !== 'open') return;
+        dataChannel.send(JSON.stringify({ type: 'text', text }));
+        addTextMessage(text, 'mine', document.getElementById(containerId));
+        document.getElementById(msgInputId).value = '';
+      }
+
+      function sendFile(file, containerId) {
+        if (!file || !dataChannel || dataChannel.readyState !== 'open') return;
+        const fileId = 'f' + Date.now();
+        dataChannel.send(JSON.stringify({ type: 'file-meta', fileId, name: file.name, size: file.size, mime: file.type }));
+        const ui = addFileMessage(file.name, file.size, 'mine', document.getElementById(containerId));
+        let offset = 0; const reader = new FileReader();
+        const next = () => {
+          if (offset >= file.size) {
+            dataChannel.send(JSON.stringify({ type: 'file-end', fileId }));
+            ui.setProgress(100); ui.finalize(URL.createObjectURL(file), file.type, file.name);
+            return;
+          }
+          reader.readAsArrayBuffer(file.slice(offset, offset + CHUNK_SIZE));
+        };
+        reader.onload = (ev) => {
+          const binary = String.fromCharCode.apply(null, new Uint8Array(ev.target.result));
+          dataChannel.send(JSON.stringify({ type: 'file-chunk', fileId, chunk: btoa(binary) }));
+          offset += ev.target.result.byteLength;
+          ui.setProgress(Math.floor((offset / file.size) * 100));
+          setTimeout(next, 0);
+        };
+        next();
+      }
+
+      // Event Listeners (Host)
+      document.getElementById('sendBtn').onclick = () => sendText('msgInput', 'messages');
+      document.getElementById('msgInput').onkeydown = (e) => { if (e.key === 'Enter') sendText('msgInput', 'messages'); };
+      document.getElementById('fileInput').onchange = (e) => { sendFile(e.target.files[0], 'messages'); e.target.value = ''; };
+
+      if (document.getElementById('app-als09').classList.contains('active')) {
+        initHost();
+      } else {
+        // Eğer başka sekmedeyse arka planda başlatma, sekmeye geçilince başlat
+        document.getElementById('nav-als09').addEventListener('click', function() {
+          if(!pc) initHost();
+        }, { once: true });
+      }
+
+      // === ALS09 MOBILE KODU ===
+      const urlParams = new URLSearchParams(location.search);
+      const mStatus = document.getElementById('m-status');
+      const mLog = (msg) => {
+        const el = document.getElementById('m-debugLog');
+        if(el) { el.innerHTML += `[${new Date().toLocaleTimeString()}] ${msg}<br>`; el.scrollTop = el.scrollHeight; }
+      };
+      const mSetStatus = (text, cls) => { if(mStatus) { mStatus.textContent = text; mStatus.className = 'status ' + cls; } };
+
+      let mPc = null, mDataChannel = null, mIncomingFile = null, mStream = null;
+
+      async function startCamera() {
+        try {
+          mStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+          const video = document.getElementById('m-video');
+          video.srcObject = mStream;
+          video.onloadedmetadata = () => scanLoop();
+        } catch (err) { mLog('Kamera hatası: ' + err.message); mSetStatus('Kamera hatası', 'error'); }
+      }
+
+      function scanLoop() {
+        const video = document.getElementById('m-video');
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        const tick = () => {
+          if (!mStream) return;
+          if (video.readyState === video.HAVE_ENOUGH_DATA) {
+            canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const code = jsQR(ctx.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height);
+            if (code && code.data) {
+              try {
+                const room = new URL(code.data).searchParams.get('room');
+                if (room) {
+                  roomId = room; mLog('QR Okundu. Oda: ' + roomId);
+                  mStream.getTracks().forEach(t => t.stop());
+                  connectToHost();
+                  return;
+                }
+              } catch(e){}
+            }
+          }
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }
+
+      async function connectToHost() {
+        mSetStatus('Bağlanıyor...', 'waiting');
+        mPc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+        mPc.ondatachannel = (event) => {
+          mDataChannel = event.channel;
+          setupMobileDataChannel(mDataChannel);
+        };
+        mPc.oniceconnectionstatechange = () => {
+          if (mPc.iceConnectionState === 'failed' || mPc.iceConnectionState === 'disconnected') {
+            mSetStatus('Bağlantı koptu', 'error');
+            if (mPc.restartIce) { mPc.restartIce(); }
+          }
+        };
+        mPc.onicecandidate = (event) => { if (event.candidate) sendSignal('mobile-ice', event.candidate); };
+
+        waitForSignal('host-offer', async (offer) => {
+          if (mPc.signalingState !== 'closed') {
+            await mPc.setRemoteDescription(new RTCSessionDescription(offer));
+            const answer = await mPc.createAnswer();
+            await mPc.setLocalDescription(answer);
+            await sendSignal('mobile-answer', answer);
+          }
+        });
+        waitForSignal('host-ice', async (candidate) => {
+          if (mPc && mPc.signalingState !== 'closed') {
+            try { await mPc.addIceCandidate(new RTCIceCandidate(candidate)); } catch(e){}
+          }
+        });
+      }
+
+      function setupMobileDataChannel(channel) {
+        channel.onopen = () => {
+          mLog('✅ DataChannel AÇILDI!');
+          mSetStatus('Bağlı ✅', 'connected');
+          document.getElementById('m-scanScreen').style.display = 'none';
+          document.getElementById('m-chatScreen').style.display = 'flex';
+        };
+        channel.onmessage = (event) => {
+          const data = JSON.parse(event.data);
+          const container = document.getElementById('m-messages');
+          if (data.type === 'text') addTextMessage(data.text, 'theirs', container);
+          else if (data.type === 'file-meta') {
+            mIncomingFile = { fileId: data.fileId, name: data.name, size: data.size, mime: data.mime, chunks: [], received: 0 };
+            mIncomingFile.ui = addFileMessage(data.name, data.size, 'theirs', container);
+          } else if (data.type === 'file-chunk' && mIncomingFile && data.fileId === mIncomingFile.fileId) {
+            const binary = atob(data.chunk);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+            mIncomingFile.chunks.push(bytes.buffer);
+            mIncomingFile.received += bytes.length;
+            mIncomingFile.ui.setProgress(Math.floor((mIncomingFile.received / mIncomingFile.size) * 100));
+          } else if (data.type === 'file-end' && mIncomingFile) {
+            const blob = new Blob(mIncomingFile.chunks, { type: mIncomingFile.mime });
+            mIncomingFile.ui.finalize(URL.createObjectURL(blob), mIncomingFile.mime, mIncomingFile.name);
+            mIncomingFile = null;
+          }
+        };
+        channel.onclose = () => { mLog('❌ Bağlantı kapandı'); mSetStatus('Bağlantı kapandı', 'waiting'); };
+      }
+
+      // Event Listeners (Mobile)
+      if(urlParams.get('room')) {
+        roomId = urlParams.get('room');
+        mLog('Oda ID alındı: ' + roomId);
+        connectToHost();
+      } else {
+        startCamera();
+      }
+
+      document.getElementById('m-sendBtn').onclick = () => {
+        const text = document.getElementById('m-msgInput').value.trim();
+        if (!text || !mDataChannel || mDataChannel.readyState !== 'open') return;
+        mDataChannel.send(JSON.stringify({ type: 'text', text }));
+        addTextMessage(text, 'mine', document.getElementById('m-messages'));
+        document.getElementById('m-msgInput').value = '';
+      };
+      document.getElementById('m-msgInput').onkeydown = (e) => { if (e.key === 'Enter') document.getElementById('m-sendBtn').click(); };
+      document.getElementById('m-fileInput').onchange = (e) => {
+        const file = e.target.files[0];
+        if (!file || !mDataChannel || mDataChannel.readyState !== 'open') return;
+        const fileId = 'f' + Date.now();
+        mDataChannel.send(JSON.stringify({ type: 'file-meta', fileId, name: file.name, size: file.size, mime: file.type }));
+        const ui = addFileMessage(file.name, file.size, 'mine', document.getElementById('m-messages'));
+        let offset = 0; const reader = new FileReader();
+        const next = () => {
+          if (offset >= file.size) {
+            mDataChannel.send(JSON.stringify({ type: 'file-end', fileId }));
+            ui.setProgress(100); ui.finalize(URL.createObjectURL(file), file.type, file.name);
+            return;
+          }
+          reader.readAsArrayBuffer(file.slice(offset, offset + CHUNK_SIZE));
+        };
+        reader.onload = (ev) => {
+          const binary = String.fromCharCode.apply(null, new Uint8Array(ev.target.result));
+          mDataChannel.send(JSON.stringify({ type: 'file-chunk', fileId, chunk: btoa(binary) }));
+          offset += ev.target.result.byteLength;
+          ui.setProgress(Math.floor((offset / file.size) * 100));
+          setTimeout(next, 0);
+        };
+        next(); e.target.value = '';
+      };
+    })();
+  </script>
+
+  <!-- =====================================================================
+       ALS08 JAVASCRIPT KODU (Hoca & Öğrenci)
+       ===================================================================== -->
+  <script>
+    (function() {
+      const CHUNK_SIZE = 16 * 1024;
+      const $ = (id) => document.getElementById(id);
+      const toastEl = $('toast');
+      let toastTimer = null;
+
+      function toast(msg, ms = 2600) {
+        toastEl.textContent = msg; toastEl.classList.add('show');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toastEl.classList.remove('show'), ms);
+      }
+      function fmtBytes(b) {
+        if (b < 1024) return b + ' B';
+        if (b < 1024*1024) return (b/1024).toFixed(1) + ' KB';
+        if (b < 1024*1024*1024) return (b/1024/1024).toFixed(2) + ' MB';
+        return (b/1024/1024/1024).toFixed(2) + ' GB';
+      }
+      function nowStr() { return new Date().toLocaleTimeString('tr-TR', {hour12:false}); }
+
+      function showView(id) {
+        ['viewHome','viewTeacher','viewStudent'].forEach(v => $(v).classList.add('hidden'));
+        $(id).classList.remove('hidden');
+        window.scrollTo({top:0, behavior:'smooth'});
+      }
+
+      $('pickTeacher').addEventListener('click', () => { resetTeacherUI(); showView('viewTeacher'); });
+      $('pickStudent').addEventListener('click', () => { resetStudentUI(); showView('viewStudent'); });
+      $('teacherBack').addEventListener('click', () => { cleanupTeacher(); showView('viewHome'); });
+      $('studentBack').addEventListener('click', () => { cleanupStudent(); showView('viewHome'); });
+
+      // HOCA MODU
+      const T = { peer: null, file: null, fileBuf: null, peers: new Map(), id: null, started: false };
+      
+      function tlog(msg, cls='') {
+        const el = $('teacherLog'); if(!el) return;
+        const d = document.createElement('div'); d.className = cls; d.textContent = `[${nowStr()}] ${msg}`;
+        el.appendChild(d); el.scrollTop = el.scrollHeight;
+      }
+      function resetTeacherUI() {
+        cleanupTeacher();
+        $('teacherStep1').classList.remove('hidden'); $('teacherStep2').classList.add('hidden');
+        $('teacherFile').value = ''; $('teacherStart').disabled = true; $('teacherLog').innerHTML = '';
+        $('teacherPeers').textContent = '0'; $('teacherStatus').textContent = 'Bekleniyor…';
+        $('qrBox').innerHTML = ''; $('teacherId').textContent = '—';
+        $('teacherFileName').textContent = '—'; $('teacherFileSize').textContent = '—';
+      }
+
+      $('teacherFile').addEventListener('change', async (e) => {
+        const f = e.target.files[0];
+        if (!f) { $('teacherStart').disabled = true; T.file = null; return; }
+        T.file = f; T.fileBuf = await f.arrayBuffer(); $('teacherStart').disabled = false;
+        tlog(`Dosya seçildi: ${f.name} (${fmtBytes(f.size)})`, 'info');
+      });
+
+      $('teacherStart').addEventListener('click', async () => {
+        if (!T.file) { toast('Önce bir dosya seçin'); return; }
+        $('teacherStart').disabled = true; $('teacherStep1').classList.add('hidden'); $('teacherStep2').classList.remove('hidden');
+        tlog('PeerJS başlatılıyor…', 'info');
+        T.peer = new Peer(undefined, { debug: 1 });
+
+        T.peer.on('open', (id) => {
+          T.id = id; $('teacherId').textContent = id; tlog(`Bağlantı ID: ${id}`, 'ok');
+          $('teacherFileName').textContent = T.file.name; $('teacherFileSize').textContent = fmtBytes(T.file.size);
+          $('teacherStatus').textContent = 'Öğrenci bekleniyor…';
+          try {
+            $('qrBox').innerHTML = '';
+            new QRCode($('qrBox'), { text: id, width: 220, height: 220, colorDark : "#0f172a", colorLight : "#ffffff", correctLevel : QRCode.CorrectLevel.M });
+          } catch(err) { tlog('QR üretilemedi: '+err.message, 'err'); }
+        });
+
+        T.peer.on('error', (err) => { tlog('Peer hata: '+err.message, 'err'); toast('Bağlantı hatası: '+err.message); });
+
+        T.peer.on('connection', (conn) => {
+          tlog(`Yeni öğrenci bağlandı: ${conn.peer}`, 'ok');
+          const rec = { conn, sent:0, total:T.file.size, done:false };
+          T.peers.set(conn.peer, rec); $('teacherPeers').textContent = T.peers.size;
+
+          conn.on('open', () => { tlog(`${conn.peer} kanalı açıldı — gönderim başlıyor`, 'info'); sendFileToPeer(conn, T.file, T.fileBuf, rec); });
+          conn.on('data', (msg) => {
+            if (msg && msg.type === 'ack') rec.sent = msg.bytes;
+            if (msg && msg.type === 'done') { rec.done = true; tlog(`${conn.peer} dosyayı tamamladı ✔`, 'ok'); checkAllDone(); }
+          });
+          conn.on('close', () => { tlog(`${conn.peer} bağlantısı kapandı`, 'warn'); T.peers.delete(conn.peer); $('teacherPeers').textContent = T.peers.size; checkAllDone(); });
+          conn.on('error', (err) => { tlog(`${conn.peer} hata: ${err.message}`, 'err'); });
+        });
+      });
+
+      function checkAllDone() {
+        const arr = [...T.peers.values()];
+        if (arr.length === 0) { $('teacherStatus').textContent = 'Öğrenci bekleniyor…'; return; }
+        $('teacherStatus').textContent = arr.every(r=>r.done) ? 'Tüm transferler tamamlandı ✔' : 'Transfer sürüyor…';
+      }
+
+      function sendFileToPeer(conn, file, buf, rec) {
+        conn.send({ type:'meta', name: file.name, size: file.size, mime: file.type || 'application/octet-stream', chunkSize: CHUNK_SIZE });
+        let offset = 0; const total = buf.byteLength; const MAX_BUFFERED = 1024 * 1024;
+        const pump = () => {
+          if (!conn.open) return;
+          while (offset < total) {
+            if (conn.dataChannel && conn.dataChannel.bufferedAmount > MAX_BUFFERED) break;
+            const end = Math.min(offset + CHUNK_SIZE, total);
+            conn.send({ type:'chunk', data: buf.slice(offset, end) });
+            offset = end; rec.sent = offset;
+            const pct = total === 0 ? 100 : (offset/total*100);
+            if (Math.floor(pct) % 5 === 0 && Math.floor(pct) !== rec.lastPct) { tlog(`${conn.peer} → %${pct.toFixed(0)} (${fmtBytes(offset)} / ${fmtBytes(total)})`); rec.lastPct = Math.floor(pct); }
+          }
+          if (offset >= total) { conn.send({ type:'eof' }); tlog(`${conn.peer} → GÖNDERİM TAMAMLANDI`, 'ok'); return; }
+          setTimeout(pump, 30);
+        };
+        pump();
+      }
+
+      function cleanupTeacher() { if (T.peer) { try { T.peer.destroy(); } catch(e){} T.peer = null; } T.peers.forEach(r => { try { r.conn.close(); } catch(e){} }); T.peers.clear(); T.started = false; }
+
+      // ÖĞRENCİ MODU
+      const S = { peer: null, conn: null, chunks: [], meta: null, received: 0, blobUrl: null };
+
+      function resetStudentUI() {
+        cleanupStudent();
+        $('studentStep1').classList.remove('hidden'); $('studentStep2').classList.add('hidden'); $('qrScanWrap').classList.add('hidden');
+        $('teacherIdInput').value = ''; $('sStatus').textContent = 'Bağlanıyor…'; $('sFileName').textContent = '—'; $('sFileSize').textContent = '—';
+        $('sPercent').textContent = '0%'; $('sBar').style.width = '0%'; $('sDownload').classList.add('hidden'); $('sDownload').onclick = null;
+        $('qrScanBtn').classList.remove('hidden'); $('deviceInfo').textContent = 'Mobil cihaz: QR okutabilirsiniz.';
+      }
+
+      $('studentConnect').addEventListener('click', () => {
+        const id = $('teacherIdInput').value.trim();
+        if (!id) { toast('Lütfen hocanın ID\'sini girin'); return; }
+        connectToTeacher(id);
+      });
+
+      function connectToTeacher(teacherId) {
+        $('studentStep1').classList.add('hidden'); $('studentStep2').classList.remove('hidden'); $('sStatus').textContent = 'Bağlanıyor…';
+        S.peer = new Peer(undefined, { debug: 1 });
+        S.peer.on('open', () => {
+          const conn = S.peer.connect(teacherId, { reliable: true }); S.conn = conn;
+          conn.on('open', () => { $('sStatus').textContent = 'Bağlandı — dosya bekleniyor…'; toast('Hocaya bağlandı'); });
+          conn.on('data', (msg) => handleStudentData(msg));
+          conn.on('close', () => { $('sStatus').textContent = 'Bağlantı kapandı'; });
+          conn.on('error', (err) => { $('sStatus').textContent = 'Hata: '+err.message; toast('Bağlantı hatası: '+err.message); });
+        });
+        S.peer.on('error', (err) => { $('sStatus').textContent = 'Hata: '+err.message; toast('Peer hatası: '+err.message); });
+      }
+
+      function handleStudentData(msg) {
+        if (!msg || !msg.type) return;
+        if (msg.type === 'meta') {
+          S.meta = msg; S.chunks = []; S.received = 0;
+          $('sFileName').textContent = msg.name; $('sFileSize').textContent = fmtBytes(msg.size);
+          $('sStatus').textContent = 'Transfer başladı…'; $('sDownload').classList.add('hidden'); return;
+        }
+        if (msg.type === 'chunk') {
+          S.chunks.push(msg.data); S.received += msg.data.byteLength;
+          const pct = S.meta && S.meta.size > 0 ? Math.min(100, S.received / S.meta.size * 100) : 0;
+          $('sPercent').textContent = pct.toFixed(1) + '%'; $('sBar').style.width = pct.toFixed(1) + '%';
+          if (S.conn && S.conn.open) { try { S.conn.send({ type:'ack', bytes: S.received }); } catch(e){} }
+          return;
+        }
+        if (msg.type === 'eof') {
+          $('sStatus').textContent = 'Transfer tamamlandı ✔'; $('sPercent').textContent = '100%'; $('sBar').style.width = '100%';
+          const blob = new Blob(S.chunks, { type: S.meta?.mime || 'application/octet-stream' });
+          if (S.blobUrl) URL.revokeObjectURL(S.blobUrl);
+          S.blobUrl = URL.createObjectURL(blob);
+          const btn = $('sDownload'); btn.classList.remove('hidden');
+          btn.onclick = () => { const a = document.createElement('a'); a.href = S.blobUrl; a.download = S.meta?.name || 'dosya'; document.body.appendChild(a); a.click(); a.remove(); };
+          if (S.conn && S.conn.open) { try { S.conn.send({ type:'done' }); } catch(e){} }
+          toast('Dosya hazır — İndir butonuna basın');
+        }
+      }
+
+      function cleanupStudent() {
+        if (S.conn) { try { S.conn.close(); } catch(e){} S.conn = null; }
+        if (S.peer) { try { S.peer.destroy(); } catch(e){} S.peer = null; }
+        if (S.blobUrl) { URL.revokeObjectURL(S.blobUrl); S.blobUrl = null; }
+        S.chunks = []; S.meta = null; S.received = 0; stopQrCamera();
+      }
+
+      // QR TARAMA
+      let qrStream = null, qrRaf = null;
+      $('qrScanBtn').addEventListener('click', startQrCamera);
+      $('qrScanCancel').addEventListener('click', stopQrCamera);
+
+      async function startQrCamera() {
+        if (!navigator.mediaDevices?.getUserMedia) { toast('Bu cihazda kamera erişimi yok'); return; }
+        try {
+          qrStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+          $('qrScanWrap').classList.remove('hidden');
+          const video = $('qrVideo'); video.srcObject = qrStream; await video.play(); tickQr();
+        } catch(err) { toast('Kamera açılamadı: '+err.message); stopQrCamera(); }
+      }
+
+      function tickQr() {
+        const video = $('qrVideo');
+        if (!qrStream || video.readyState < 2) { qrRaf = requestAnimationFrame(tickQr); return; }
+        const canvas = document.createElement('canvas'); const w = video.videoWidth, h = video.videoHeight;
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(video, 0, 0, w, h);
+        const img = ctx.getImageData(0, 0, w, h);
+        const code = jsQR(img.data, w, h, { inversionAttempts: 'dontInvert' });
+        if (code && code.data) {
+          stopQrCamera(); const id = code.data.trim();
+          if (id.length < 4 || /\s/.test(id)) { toast('Geçersiz QR içeriği'); return; }
+          $('teacherIdInput').value = id; toast('QR okundu — bağlanılıyor'); connectToTeacher(id); return;
+        }
+        qrRaf = requestAnimationFrame(tickQr);
+      }
+
+      function stopQrCamera() {
+        if (qrRaf) { cancelAnimationFrame(qrRaf); qrRaf = null; }
+        if (qrStream) { qrStream.getTracks().forEach(t=>t.stop()); qrStream = null; }
+        const v = $('qrVideo'); if (v) v.srcObject = null;
+        $('qrScanWrap').classList.add('hidden');
+      }
+
+      window.addEventListener('beforeunload', () => { cleanupTeacher(); cleanupStudent(); });
+    })();
+  </script>
+</body>
+</html>
